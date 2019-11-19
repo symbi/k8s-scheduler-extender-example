@@ -7,31 +7,36 @@ metadata:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: my-scheduler-as-kube-scheduler
-subjects:
-- kind: ServiceAccount
-  name: my-scheduler
+  name: my-scheduler-cluster-admin
   namespace: kube-system
-  apiGroup: ""
 roleRef:
+  apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: system:kube-scheduler
-  apiGroup: rbac.authorization.k8s.io
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: my-scheduler-rolebinding
-  namespace: kube-system
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: extension-apiserver-authentication-reader
+  name: cluster-admin
 subjects:
-- apiGroup: ""
-  kind: ServiceAccount
-  name: my-scheduler
+  - kind: ServiceAccount
+    namespace: kube-system
+    name: my-scheduler
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-scheduler-config
   namespace: kube-system
+data:
+  config.yaml: |
+    apiVersion: kubescheduler.config.k8s.io/v1alpha1
+    kind: KubeSchedulerConfiguration
+    schedulerName: my-scheduler
+    algorithmSource:
+      policy:
+        configMap:
+          namespace: kube-system
+          name: my-scheduler-policy
+    leaderElection:
+      leaderElect: true
+      lockObjectName: my-scheduler
+      lockObjectNamespace: kube-system
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -43,9 +48,6 @@ data:
   {
     "kind" : "Policy",
     "apiVersion" : "v1",
-    "metadata" : {
-        "name": "my-scheduler-policy"
-    },
     "predicates" : [
       {"name" : "PodFitsHostPorts"},
       {"name" : "PodFitsResources"},
@@ -57,7 +59,6 @@ data:
       {"name" : "LeastRequestedPriority", "weight" : 1},
       {"name" : "BalancedResourceAllocation", "weight" : 1},
       {"name" : "ServiceSpreadingPriority", "weight" : 1},
-      {"name" : "NodeAffinityPriority", "weight" : 1},
       {"name" : "EqualPriority", "weight" : 1}
     ],
     "extenders" : [{
@@ -90,7 +91,7 @@ spec:
       labels:
         app: my-scheduler
     spec:
-      serviceAccount: my-scheduler
+      serviceAccountName: my-scheduler
       volumes:
       - name: my-scheduler-config
         configMap:
@@ -101,13 +102,13 @@ spec:
         imagePullPolicy: IfNotPresent
         args:
         - kube-scheduler
+        - --config=/my-scheduler/config.yaml
         - -v=4
-        - --address=0.0.0.0
-        - --policy-configmap=my-scheduler-policy
-        - --scheduler-name=my-scheduler
-        - --leader-elect=false
+        volumeMounts:
+        - name: my-scheduler-config
+          mountPath: /my-scheduler
       - name: my-scheduler-extender-ctr
-        image: gcr.io/my-gcp-project/my-kube-scheduler-extender:1.0
+        image: a/b:c
         imagePullPolicy: IfNotPresent
         livenessProbe:
           httpGet:
